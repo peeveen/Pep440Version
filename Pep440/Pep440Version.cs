@@ -136,8 +136,8 @@ namespace Pep440 {
 			Pep440PrereleaseSegment GetPrereleaseSegment(Group g) {
 				var prereleaseString = g.Value.Strip(PepSeparators);
 				return new Pep440PrereleaseSegment(
-					GetPrereleaseType(string.Join(string.Empty, prereleaseString.Where(c => !char.IsDigit(c)))),
-					int.Parse(string.Join(string.Empty, prereleaseString.Where(char.IsDigit)))
+					GetPrereleaseType(new string(prereleaseString.Where(c => !char.IsDigit(c)).ToArray())),
+					int.Parse(new string(prereleaseString.Where(char.IsDigit).ToArray()))
 				);
 			}
 			version = version.Trim().ToLowerInvariant();
@@ -260,7 +260,6 @@ namespace Pep440 {
 /// Extensions for string manipulation.
 /// </summary>
 internal static class StringExtensions {
-	public static string Strip(this string value, char[] chars) {
-		return new string(value.Where(c => !chars.Contains(c)).ToArray());
-	}
+	public static string Strip(this string value, char[] chars) =>
+		new string(value.Where(c => !chars.Contains(c)).ToArray());
 }
