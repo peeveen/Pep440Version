@@ -50,7 +50,8 @@ namespace Pep440 {
 	/// https://www.python.org/dev/peps/pep-0440/
 	/// </summary>
 	public class Pep440Version {
-		private const string PEP440_VERSION_PATTERN = @"^(?:(?<epoch>\d+)!)?(?<release>\d+(\.\d+)*)(?<pre>(a|b|c|rc)\d+)?(?<post>\.post\d+)?(?<dev>\.dev\d+)?(?<local>\+[a-zA-Z0-9]+)?$";
+		private const string PEP440_VERSION_PATTERN = @"^v?(?:(?<epoch>\d+)!)?(?<release>\d+(\.\d+)*)(?<pre>[-_.]?(a|b|c|rc|alpha|beta|pre|preview)([-_.]?\d+)?)?(?<post>[-_.]?(post|rev|r)([-_.]?\d+)?)?(?<dev>[-_.]?dev([-_.]?\d+)?)?(?<local>\+([a-zA-Z0-9]+[-_.]?)+)?$";
+		private static readonly char[] PepSeparators = new char[] { '.', '-', '_' };
 
 		/// <summary>
 		/// Version number parts. There will ALWAYS be at least one in this list.
@@ -71,7 +72,7 @@ namespace Pep440 {
 		/// <summary>
 		/// Local version label. Null if not specified.
 		/// </summary>
-		public string LocalVersionLabel { get; }
+		public IReadOnlyList<string> LocalVersionLabels { get; }
 		/// <summary>
 		/// Prerelease information. Null if not a prerelease.
 		/// </summary>
@@ -86,7 +87,7 @@ namespace Pep440 {
 			int? postReleaseNumber = null,
 			int? developmentReleaseNumber = null,
 			int epochNumber = 0,
-			string localVersionLabel = null
+			IEnumerable<string> localVersionLabels = null
 		) {
 			if (!publicReleaseVersionNumbers.Any())
 				throw new ArgumentException("Version must have at least one public release number", nameof(publicReleaseVersionNumbers));
@@ -95,13 +96,13 @@ namespace Pep440 {
 			PostReleaseNumber = postReleaseNumber;
 			DevelopmentReleaseNumber = developmentReleaseNumber;
 			EpochNumber = epochNumber;
-			LocalVersionLabel = localVersionLabel;
+			LocalVersionLabels = localVersionLabels?.ToList() ?? new List<string>();
 		}
 
 		private static PrereleaseType GetPrereleaseType(string value) {
-			if (value == "a") return PrereleaseType.Alpha;
-			if (value == "b") return PrereleaseType.Beta;
-			// Regex parsing will ensure that the only possible remaining values are c or rc, which both mean ...
+			if (value == "a" || value == "alpha") return PrereleaseType.Alpha;
+			if (value == "b" || value == "beta") return PrereleaseType.Beta;
+			// Regex parsing will ensure that the only possible remaining values are ...
 			return PrereleaseType.ReleaseCandidate;
 		}
 
@@ -118,7 +119,7 @@ namespace Pep440 {
 			if (PrereleaseSegment != null) version = $"{version}{GetPrereleaseString(PrereleaseSegment.PrereleaseType)}{PrereleaseSegment.PrereleaseNumber}";
 			if (PostReleaseNumber.HasValue) version = $"{version}.post{PostReleaseNumber}";
 			if (DevelopmentReleaseNumber.HasValue) version = $"{version}.dev{DevelopmentReleaseNumber}";
-			if (!string.IsNullOrEmpty(LocalVersionLabel)) version = $"{version}+{LocalVersionLabel}";
+			if (LocalVersionLabels.Any()) version = $"{version}+{string.Join(".", LocalVersionLabels)}";
 			return version;
 		}
 
@@ -128,21 +129,35 @@ namespace Pep440 {
 		/// <param name="version">String to parse.</param>
 		/// <returns>A parsed version object.</returns>
 		public static Pep440Version Parse(string version) {
+			IEnumerable<string> ParseLocalVersionLabels(string localVersionLabelString) {
+				if (localVersionLabelString == null) return new List<string>();
+				return localVersionLabelString.Split(PepSeparators).ToList();
+			}
+			Pep440PrereleaseSegment GetPrereleaseSegment(Group g) {
+				var prereleaseString = g.Value.Strip(PepSeparators);
+				return new Pep440PrereleaseSegment(
+					GetPrereleaseType(string.Join(string.Empty, prereleaseString.Where(c => !char.IsDigit(c)))),
+					int.Parse(string.Join(string.Empty, prereleaseString.Where(char.IsDigit)))
+				);
+			}
+			version = version.Trim().ToLowerInvariant();
 			var match = Regex.Match(version, PEP440_VERSION_PATTERN);
 			if (!match.Success)
 				throw new ArgumentException("Invalid PEP440 version string", nameof(version));
 
-			int epoch = match.Groups["epoch"].Success ? int.Parse(match.Groups["epoch"].Value) : 0;
+			var epochGroup = match.Groups["epoch"];
+			int epoch = epochGroup.Success ? int.Parse(epochGroup.Value) : 0;
 			var release = Array.ConvertAll(match.Groups["release"].Value.Split('.'), int.Parse);
-			var prerelease = match.Groups["pre"].Success ? new Pep440PrereleaseSegment(
-				GetPrereleaseType(string.Join(string.Empty, match.Groups["pre"].Value.Where(c => !char.IsDigit(c)))),
-				int.Parse(string.Join(string.Empty, match.Groups["pre"].Value.Where(char.IsDigit)))
-			) : null;
-			int? post = match.Groups["post"].Success ? int.Parse(match.Groups["post"].Value.Substring(5)) : (int?)null;
-			int? dev = match.Groups["dev"].Success ? int.Parse(match.Groups["dev"].Value.Substring(4)) : (int?)null;
-			string local = match.Groups["local"].Success ? match.Groups["local"].Value.Substring(1) : null;
+			var prereleaseGroup = match.Groups["pre"];
+			var prerelease = prereleaseGroup.Success ? GetPrereleaseSegment(prereleaseGroup) : null;
+			var postGroup = match.Groups["post"];
+			int? post = postGroup.Success ? int.Parse(postGroup.Value.Strip(PepSeparators).Substring(4)) : (int?)null;
+			var devGroup = match.Groups["dev"];
+			int? dev = devGroup.Success ? int.Parse(devGroup.Value.Strip(PepSeparators).Substring(3)) : (int?)null;
+			var localGroup = match.Groups["local"];
+			string local = localGroup.Success ? localGroup.Value.Substring(1) : null;
 
-			return new Pep440Version(release, prerelease, post, dev, epoch, local);
+			return new Pep440Version(release, prerelease, post, dev, epoch, ParseLocalVersionLabels(local));
 		}
 
 		/// <summary>
@@ -169,23 +184,46 @@ namespace Pep440 {
 		/// A value less than zero if this object is an earlier version.
 		/// A value equal to zero if the objects refer to the same version.
 		/// Dev versions are considered earlier than non-dev versions.
-		/// If all else is equal, the local version label is compared alphabetically.
+		/// If all else is equal, the local version labels are compared alphabetically.
 		/// </returns>
 		public int CompareTo(Pep440Version version) {
-			int CompareVersionNumbers() {
+			int CompareCollections<T>(IReadOnlyList<T> c1, IReadOnlyList<T> c2, Func<T, T, int> comparer) {
 				var vdiff = 0;
-				for (var i = 0; i < ReleaseVersionNumbers.Count; i++) {
-					if (i >= version.ReleaseVersionNumbers.Count) {
+				for (var i = 0; i < c1.Count; i++) {
+					if (i >= c2.Count) {
 						vdiff = 1;
 						break;
 					}
-					vdiff = ReleaseVersionNumbers[i] - version.ReleaseVersionNumbers[i];
+					vdiff = comparer(c1[i], c2[i]);
 					if (vdiff != 0) break;
 				}
-				if (vdiff == 0 && ReleaseVersionNumbers.Count < version.ReleaseVersionNumbers.Count)
+				if (vdiff == 0 && c1.Count < c2.Count)
 					vdiff = -1;
 				return vdiff;
 			}
+			int CompareVersionNumbers() => CompareCollections(ReleaseVersionNumbers, version.ReleaseVersionNumbers, (a, b) => a - b);
+			int CompareLocalVersionLabels(string l1, string l2) {
+				// According to the PEP440 spec ...
+				// "Comparison and ordering of local versions considers each segment of the local version (divided by a .) separately.
+				// If a segment consists entirely of ASCII digits then that section should be considered an integer for comparison
+				// purposes and if a segment contains any ASCII letters then that segment is compared lexicographically with case
+				// insensitivity. When comparing a numeric and lexicographic segment, the numeric section always compares as greater
+				// than the lexicographic segment. Additionally a local version with a great number of segments will always compare
+				// as greater than a local version with fewer segments, as long as the shorter local version’s segments match the
+				// beginning of the longer local version’s segments exactly."
+
+				int i1 = 0, i2 = 0;
+				var parsedInt1 = l1.All(char.IsDigit) && int.TryParse(l1, out i1);
+				var parsedInt2 = l2.All(char.IsDigit) && int.TryParse(l2, out i2);
+				if (parsedInt1 && parsedInt2)
+					return i1 - i2;
+				if (parsedInt1)
+					return 1;
+				if (parsedInt2)
+					return -1;
+				return string.Compare(l1, l2, StringComparison.Ordinal);
+			}
+			int CompareLocalVersionLabelCollections() => CompareCollections(LocalVersionLabels, version.LocalVersionLabels, CompareLocalVersionLabels);
 
 			var diff = EpochNumber - version.EpochNumber;
 			if (diff == 0) {
@@ -207,8 +245,8 @@ namespace Pep440 {
 							// BUT! A dev version counts as an EARLIER version than a non-dev version.
 							diff = version.DevelopmentReleaseNumber.GetValueOrDefault() - DevelopmentReleaseNumber.GetValueOrDefault();
 							if (diff == 0)
-								// We're down to brass tacks ... compare the local version label.
-								diff = string.Compare(LocalVersionLabel, version.LocalVersionLabel, StringComparison.Ordinal);
+								// We're down to brass tacks ... compare the local version labels.
+								diff = CompareLocalVersionLabelCollections();
 						}
 					}
 				}
@@ -218,3 +256,11 @@ namespace Pep440 {
 	}
 }
 
+/// <summary>
+/// Extensions for string manipulation.
+/// </summary>
+internal static class StringExtensions {
+	public static string Strip(this string value, char[] chars) {
+		return new string(value.Where(c => !chars.Contains(c)).ToArray());
+	}
+}
