@@ -4,39 +4,38 @@ using System.Text.RegularExpressions;
 using System.Linq;
 
 namespace Pep440 {
-
 	/// <summary>
-	///
+	/// Prerelease type
 	/// </summary>
 	public enum PrereleaseType {
 		/// <summary>
-		///
+		/// Alpha release
 		/// </summary>
 		Alpha,
 		/// <summary>
-		///
+		/// Beta release
 		/// </summary>
 		Beta,
 		/// <summary>
-		///
+		/// Release candidate
 		/// </summary>
 		ReleaseCandidate
 	}
 
 	/// <summary>
-	///
+	/// Prerelease information.
 	/// </summary>
 	public class Pep440PrereleaseSegment {
 		/// <summary>
-		///
+		/// The prerelease type.
 		/// </summary>
 		public PrereleaseType PrereleaseType { get; }
 		/// <summary>
-		///
+		/// The prerelease number
 		/// </summary>
 		public int PrereleaseNumber { get; }
 		/// <summary>
-		///
+		/// Constructor.
 		/// </summary>
 		/// <param name="prereleaseType"></param>
 		/// <param name="prereleaseNumber"></param>
@@ -81,8 +80,17 @@ namespace Pep440 {
 		/// <summary>
 		/// Constructor for public versions.
 		/// </summary>
-		public Pep440Version(int[] publicReleaseVersionNumbers, Pep440PrereleaseSegment prereleaseSegment = null, int? postReleaseNumber = null, int? developmentReleaseNumber = null, int epochNumber = 0, string localVersionLabel = null) {
-			ReleaseVersionNumbers = publicReleaseVersionNumbers;
+		public Pep440Version(
+			IEnumerable<int> publicReleaseVersionNumbers,
+			Pep440PrereleaseSegment prereleaseSegment = null,
+			int? postReleaseNumber = null,
+			int? developmentReleaseNumber = null,
+			int epochNumber = 0,
+			string localVersionLabel = null
+		) {
+			if (!publicReleaseVersionNumbers.Any())
+				throw new ArgumentException("Version must have at least one public release number", nameof(publicReleaseVersionNumbers));
+			ReleaseVersionNumbers = publicReleaseVersionNumbers.ToList();
 			PrereleaseSegment = prereleaseSegment;
 			PostReleaseNumber = postReleaseNumber;
 			DevelopmentReleaseNumber = developmentReleaseNumber;
@@ -151,6 +159,61 @@ namespace Pep440 {
 				pep440Version = null;
 				return false;
 			}
+		}
+
+		/// <summary>
+		/// Compares this version to another.
+		/// </summary>
+		/// <param name="version">Version to compare against.</param>
+		/// <returns>A value greater than zero if this object is a later version.
+		/// A value less than zero if this object is an earlier version.
+		/// A value equal to zero if the objects refer to the same version.
+		/// Dev versions are considered earlier than non-dev versions.
+		/// If all else is equal, the local version label is compared alphabetically.
+		/// </returns>
+		public int CompareTo(Pep440Version version) {
+			int CompareVersionNumbers() {
+				var vdiff = 0;
+				for (var i = 0; i < ReleaseVersionNumbers.Count; i++) {
+					if (i >= version.ReleaseVersionNumbers.Count) {
+						vdiff = 1;
+						break;
+					}
+					vdiff = ReleaseVersionNumbers[i] - version.ReleaseVersionNumbers[i];
+					if (vdiff != 0) break;
+				}
+				if (vdiff == 0 && ReleaseVersionNumbers.Count < version.ReleaseVersionNumbers.Count)
+					vdiff = -1;
+				return vdiff;
+			}
+
+			var diff = EpochNumber - version.EpochNumber;
+			if (diff == 0) {
+				diff = CompareVersionNumbers();
+				if (diff == 0) {
+					if (PrereleaseSegment != null && version.PrereleaseSegment == null)
+						diff = -1;
+					else if (PrereleaseSegment == null && version.PrereleaseSegment != null)
+						diff = 1;
+					else if (PrereleaseSegment != null && version.PrereleaseSegment != null) {
+						diff = (int)PrereleaseSegment.PrereleaseType - (int)version.PrereleaseSegment.PrereleaseType;
+						if (diff == 0)
+							diff = PrereleaseSegment.PrereleaseNumber - version.PrereleaseSegment.PrereleaseNumber;
+					}
+					if (diff == 0) {
+						// A post-release version obviously counts as a later version than a non-post-release version.
+						diff = PostReleaseNumber.GetValueOrDefault() - version.PostReleaseNumber.GetValueOrDefault();
+						if (diff == 0) {
+							// BUT! A dev version counts as an EARLIER version than a non-dev version.
+							diff = version.DevelopmentReleaseNumber.GetValueOrDefault() - DevelopmentReleaseNumber.GetValueOrDefault();
+							if (diff == 0)
+								// We're down to brass tacks ... compare the local version label.
+								diff = string.Compare(LocalVersionLabel, version.LocalVersionLabel, StringComparison.Ordinal);
+						}
+					}
+				}
+			}
+			return diff;
 		}
 	}
 }

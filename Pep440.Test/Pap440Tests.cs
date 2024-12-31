@@ -16,6 +16,33 @@ namespace Pep440.Test {
 		public void TestInvalidPep440VersionStringParsing(string versionString) =>
 			new Action(() => Pep440Version.Parse(versionString)).Should().Throw<ArgumentException>();
 
+		[Theory]
+		[MemberData(nameof(ComparisonTestData))]
+		public void TestVersionComparisons(string versionString1, string versionString2, int expectedResult) {
+			var parsed1 = Pep440Version.Parse(versionString1);
+			var parsed2 = Pep440Version.Parse(versionString2);
+			var result = parsed1.CompareTo(parsed2);
+			var inverseResult = parsed2.CompareTo(parsed1);
+
+			if (expectedResult < 0) {
+				result.Should().BeLessThan(0);
+				inverseResult.Should().BeGreaterThan(0);
+			} else if (expectedResult > 0) {
+				result.Should().BeGreaterThan(0);
+				inverseResult.Should().BeLessThan(0);
+			} else {
+				result.Should().Be(0);
+				inverseResult.Should().Be(0);
+			}
+
+			var anotherParsed1 = Pep440Version.Parse(versionString1);
+			var anotherParsed2 = Pep440Version.Parse(versionString2);
+			var expectedSameResult = parsed1.CompareTo(anotherParsed1);
+			expectedSameResult.Should().Be(0);
+			expectedSameResult = parsed2.CompareTo(anotherParsed2);
+			expectedSameResult.Should().Be(0);
+		}
+
 		public static TheoryData<string, Pep440Version> ValidParsingTestData => new() {
 			{ "1", new Pep440Version([1]) },
 			{ "1.2", new Pep440Version([1,2]) },
@@ -35,5 +62,22 @@ namespace Pep440.Test {
 			"1.3.4alpha4",
 			"1.3.4.posst4",
 		];
+
+		public static TheoryData<string, string, int> ComparisonTestData => new() {
+			{ "1", "2", -1 },
+			{ "1!1", "1", 1 },
+			{ "1.2.3.4.5", "1.2.3.4.6", -1 },
+			{ "1.2.3.4.5", "1.2.3.4", 1 },
+			{ "1.2.3.4.0", "1.2.3.4", 1 },
+			{ "1.2.dev1", "1.2", -1 },
+			{ "1.2.post1", "1.2", 1 },
+			{ "1.2.post1.dev1", "1.2.post1", -1 },
+			{ "1.2a3", "1.2b3", -1 },
+			{ "1.2b3", "1.2c3", -1 },
+			{ "1.2b3", "1.2rc3", -1 },
+			{ "1.2c3", "1.2rc4", -1 },
+			{ "1.2rc3", "1.2rc4", -1 },
+			{ "1.2rc3.post99.dev44+flim", "1.2rc3.post99.dev44+flam", 1 },
+		};
 	}
 }
