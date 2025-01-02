@@ -49,6 +49,7 @@ namespace Pep440.Test {
 			{ "1.2.66.98756.221121.54", new Pep440Version([1,2,66,98756,221121,54]), null },
 			{ "55!1.2", new Pep440Version([1,2], epochNumber:55), null },
 			{ "1.7.3.4a99", new Pep440Version([1,7,3,4], prereleaseSegment: new Pep440PrereleaseSegment(PrereleaseType.Alpha, 99)), null },
+			{ "1000.34234.546456.231231rc", new Pep440Version([1000,34234,546456,231231], prereleaseSegment: new Pep440PrereleaseSegment(PrereleaseType.ReleaseCandidate, 0)), "1000.34234.546456.231231rc0" },
 			{ "1000.34234.546456.231231rc993939393", new Pep440Version([1000,34234,546456,231231], prereleaseSegment: new Pep440PrereleaseSegment(PrereleaseType.ReleaseCandidate, 993939393)), null },
 			{ "2!5b3.post66.dev983", new Pep440Version([5], prereleaseSegment: new Pep440PrereleaseSegment(PrereleaseType.Beta, 3), postReleaseNumber: 66, developmentReleaseNumber:983, epochNumber: 2), null },
 			{ "2!5b3.post66.dev983+blah", new Pep440Version([5], prereleaseSegment: new Pep440PrereleaseSegment(PrereleaseType.Beta, 3), postReleaseNumber: 66, developmentReleaseNumber:983, epochNumber: 2, localVersionLabels: ["blah"]), null },

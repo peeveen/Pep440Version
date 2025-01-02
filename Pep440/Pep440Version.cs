@@ -167,9 +167,10 @@ namespace Pep440 {
 			}
 			Pep440PrereleaseSegment GetPrereleaseSegment(Group g) {
 				var prereleaseString = g.Value.Strip(PepSeparators);
+				var prereleaseStringNumbers = new string(prereleaseString.Where(char.IsDigit).ToArray());
 				return new Pep440PrereleaseSegment(
 					PrereleaseType.FromString(new string(prereleaseString.Where(c => !char.IsDigit(c)).ToArray())),
-					int.Parse(new string(prereleaseString.Where(char.IsDigit).ToArray()))
+					int.Parse(prereleaseStringNumbers == string.Empty ? "0" : prereleaseStringNumbers)
 				);
 			}
 			version = version.Trim().ToLowerInvariant();
