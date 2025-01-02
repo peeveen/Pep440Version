@@ -7,25 +7,53 @@ namespace Pep440 {
 	/// <summary>
 	/// Prerelease type
 	/// </summary>
-	public enum PrereleaseType {
+	public sealed class PrereleaseType : IComparable {
 		/// <summary>
 		/// Alpha release
 		/// </summary>
-		Alpha,
+		public static PrereleaseType Alpha = new PrereleaseType("a", "alpha");
 		/// <summary>
 		/// Beta release
 		/// </summary>
-		Beta,
+		public static PrereleaseType Beta = new PrereleaseType("b", "beta");
 		/// <summary>
 		/// Release candidate
 		/// </summary>
-		ReleaseCandidate
+		public static PrereleaseType ReleaseCandidate = new PrereleaseType("rc", "c", "pre", "preview");
+
+		/// <summary>
+		/// String that is used to identify this prerelease type in version strings.
+		/// </summary>
+		public string Identifier { get; }
+		/// <summary>
+		/// Other strings that can be used to identify this prerelease type in version strings.
+		/// Used for legacy parsing support.
+		/// </summary>
+		private readonly string[] _aliases;
+		private static readonly PrereleaseType[] _prereleaseTypes = new PrereleaseType[] { Alpha, Beta, ReleaseCandidate };
+
+		private PrereleaseType(string identifier, params string[] aliases) {
+			Identifier = identifier;
+			_aliases = aliases;
+		}
+
+		/// <summary>
+		/// Gets the appropriate prerelease type from the given string.
+		/// </summary>
+		/// <param name="identifier">String identifier.</param>
+		/// <returns>The matched prerelease type.</returns>
+		/// <exception cref="ArgumentException">Thrown if the given string does not match a known prerelease type.</exception>
+		public static PrereleaseType FromString(string identifier) =>
+			_prereleaseTypes.FirstOrDefault(t => t.Identifier == identifier || t._aliases.Contains(identifier)) ?? throw new ArgumentException("Invalid prerelease identifier.", nameof(identifier));
+
+		/// <inheritdoc/>
+		public int CompareTo(object obj) => obj is PrereleaseType otherType ? Identifier.CompareTo(otherType.Identifier) : 0;
 	}
 
 	/// <summary>
 	/// Prerelease information.
 	/// </summary>
-	public class Pep440PrereleaseSegment {
+	public class Pep440PrereleaseSegment : IComparable {
 		/// <summary>
 		/// The prerelease type.
 		/// </summary>
@@ -42,6 +70,17 @@ namespace Pep440 {
 		public Pep440PrereleaseSegment(PrereleaseType prereleaseType, int prereleaseNumber) {
 			PrereleaseType = prereleaseType;
 			PrereleaseNumber = prereleaseNumber;
+		}
+
+		/// <inheritdoc/>
+		public int CompareTo(object obj) {
+			if (obj is Pep440PrereleaseSegment otherSegment) {
+				var diff = PrereleaseType.CompareTo(otherSegment.PrereleaseType);
+				if (diff == 0)
+					diff = PrereleaseNumber - otherSegment.PrereleaseNumber;
+				return diff;
+			}
+			return 0;
 		}
 	}
 
@@ -99,13 +138,6 @@ namespace Pep440 {
 			LocalVersionLabels = localVersionLabels?.ToList() ?? new List<string>();
 		}
 
-		private static PrereleaseType GetPrereleaseType(string value) {
-			if (value == "a" || value == "alpha") return PrereleaseType.Alpha;
-			if (value == "b" || value == "beta") return PrereleaseType.Beta;
-			// Regex parsing will ensure that the only possible remaining values are ...
-			return PrereleaseType.ReleaseCandidate;
-		}
-
 		private static string GetPrereleaseString(PrereleaseType prereleaseType) {
 			if (prereleaseType == PrereleaseType.Alpha) return "a";
 			if (prereleaseType == PrereleaseType.Beta) return "b";
@@ -136,7 +168,7 @@ namespace Pep440 {
 			Pep440PrereleaseSegment GetPrereleaseSegment(Group g) {
 				var prereleaseString = g.Value.Strip(PepSeparators);
 				return new Pep440PrereleaseSegment(
-					GetPrereleaseType(new string(prereleaseString.Where(c => !char.IsDigit(c)).ToArray())),
+					PrereleaseType.FromString(new string(prereleaseString.Where(c => !char.IsDigit(c)).ToArray())),
 					int.Parse(new string(prereleaseString.Where(char.IsDigit).ToArray()))
 				);
 			}
@@ -234,7 +266,7 @@ namespace Pep440 {
 					else if (PrereleaseSegment == null && version.PrereleaseSegment != null)
 						diff = 1;
 					else if (PrereleaseSegment != null && version.PrereleaseSegment != null) {
-						diff = (int)PrereleaseSegment.PrereleaseType - (int)version.PrereleaseSegment.PrereleaseType;
+						diff = PrereleaseSegment.CompareTo(version.PrereleaseSegment);
 						if (diff == 0)
 							diff = PrereleaseSegment.PrereleaseNumber - version.PrereleaseSegment.PrereleaseNumber;
 					}
